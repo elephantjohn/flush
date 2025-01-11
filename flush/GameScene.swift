@@ -85,12 +85,12 @@ class GameScene: SKScene {
         // 增加洞的数量
         currentHoleCount += holesPerBreak
         
-        // 生成新的遮罩图像
-        let maskImage = generateRandomMask(size: size, holeCount: currentHoleCount, holeRadiusRange: holeRadiusRange)
+        // 生成新的遮罩图像，使用 objectNode 的大小
+        let maskImage = generateRandomMask(size: objectNode.size, holeCount: currentHoleCount, holeRadiusRange: holeRadiusRange)
         maskNode.texture = SKTexture(image: maskImage)
         
         // 重新设置 maskNode 的大小
-        maskNode.size = size
+        maskNode.size = objectNode.size
         
         // 震动反馈
         let generator = UIImpactFeedbackGenerator(style: .medium)
@@ -182,9 +182,9 @@ class GameScene: SKScene {
         cropNode.zPosition = 5
         
         // 创建 maskNode
-        let initialMaskImage = generateRandomMask(size: size, holeCount: 0, holeRadiusRange: holeRadiusRange) // 初始无洞
+        let initialMaskImage = generateRandomMask(size: CGSize(width: 200, height: 200), holeCount: 0, holeRadiusRange: holeRadiusRange) // 初始无洞，调整大小为物体大小
         maskNode = SKSpriteNode(texture: SKTexture(image: initialMaskImage))
-        maskNode.size = size
+        maskNode.size = CGSize(width: 200, height: 200) // 确保与 objectNode 大小一致
         maskNode.position = CGPoint(x: 0, y: 0)
         
         cropNode.maskNode = maskNode
@@ -194,6 +194,7 @@ class GameScene: SKScene {
         
         // 添加物体节点到 CropNode
         objectNode = SKSpriteNode(imageNamed: objectName) // 使用用户选择的物体图片
+        objectNode.size = CGSize(width: 200, height: 200) // 确保物体大小与遮罩一致
         objectNode.position = CGPoint(x: 0, y: 0) // 相对于 CropNode
         cropNode.addChild(objectNode)
         
