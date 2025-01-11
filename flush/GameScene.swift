@@ -30,6 +30,13 @@ class GameScene: SKScene {
         AvailableObject(name: "man", emoji: "👨")
     ]
     
+    // CropNode 和 mask相关
+    var cropNode: SKCropNode!
+    var maskNode: SKSpriteNode!
+    var currentHoleCount = 0
+    let holesPerBreak = 3
+    let holeRadiusRange: ClosedRange<CGFloat> = 10...30
+    
     override func didMove(to view: SKView) {
         // 清除所有现有子节点
         removeAllChildren()
@@ -46,30 +53,53 @@ class GameScene: SKScene {
         for node in nodesAtPoint {
             if node.name == "breakButton" {
                 breakObject()
+                // 添加缩放动画
+                let scaleUp = SKAction.scale(to: 1.2, duration: 0.1)
+                let scaleDown = SKAction.scale(to: 1.0, duration: 0.1)
+                node.run(SKAction.sequence([scaleUp, scaleDown]))
             }
             else if node.name?.hasPrefix("objectButton_") == true {
                 let selectedObject = node.name!.replacingOccurrences(of: "objectButton_", with: "")
                 selectObject(named: selectedObject)
+                
+                // 添加缩放动画
+                let scaleUp = SKAction.scale(to: 1.2, duration: 0.1)
+                let scaleDown = SKAction.scale(to: 1.0, duration: 0.1)
+                node.run(SKAction.sequence([scaleUp, scaleDown]))
             }
-            else if node.name == "backButton" { // 处理返回按钮点击事件
-                showObjectSelection()
+            else if node.name == "backButton" {
                 removeBreakInterface()
+                showObjectSelection()
+                
+                // 添加缩放动画
+                let scaleUp = SKAction.scale(to: 1.2, duration: 0.1)
+                let scaleDown = SKAction.scale(to: 1.0, duration: 0.1)
+                node.run(SKAction.sequence([scaleUp, scaleDown]))
             }
         }
     }
     
     func breakObject() {
-        // 物体减少部分
-        let scaleAction = SKAction.scale(by: 0.9, duration: 0.2) // 物体减少10%
-        objectNode.run(scaleAction)
+        guard let cropNode = cropNode, let maskNode = maskNode else { return }
+        
+        // 增加洞的数量
+        currentHoleCount += holesPerBreak
+        
+        // 生成新的遮罩图像
+        let maskImage = generateRandomMask(size: size, holeCount: currentHoleCount, holeRadiusRange: holeRadiusRange)
+        maskNode.texture = SKTexture(image: maskImage)
+        
+        // 重新设置 maskNode 的大小
+        maskNode.size = size
         
         // 震动反馈
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         
-        // 破碎动画（示例）
+        // 可选：添加粒子效果
         if let explosion = SKEmitterNode(fileNamed: "Explosion.sks") {
             explosion.position = objectNode.position
+            explosion.zPosition = 15 // 确保粒子效果在物体之上
             addChild(explosion)
             
             let removeAction = SKAction.sequence([
@@ -146,26 +176,71 @@ class GameScene: SKScene {
         }
         objectButtons.removeAll()
         
-        // 添加物体节点
-        objectNode = SKSpriteNode(imageNamed: objectName) // 使用用户选择的物体图片
-        objectNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
-        addChild(objectNode)
+        // 创建 CropNode
+        cropNode = SKCropNode()
+        cropNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        cropNode.zPosition = 5
         
-        // 添加打破按钮
+        // 创建 maskNode
+        let initialMaskImage = generateRandomMask(size: size, holeCount: 0, holeRadiusRange: holeRadiusRange) // 初始无洞
+        maskNode = SKSpriteNode(texture: SKTexture(image: initialMaskImage))
+        maskNode.size = size
+        maskNode.position = CGPoint(x: 0, y: 0)
+        
+        cropNode.maskNode = maskNode
+        
+        // 添加 CropNode 到场景
+        addChild(cropNode)
+        
+        // 添加物体节点到 CropNode
+        objectNode = SKSpriteNode(imageNamed: objectName) // 使用用户选择的物体图片
+        objectNode.position = CGPoint(x: 0, y: 0) // 相对于 CropNode
+        cropNode.addChild(objectNode)
+        
+        // 添加“打破”按钮
         let breakButton = SKLabelNode(text: "打破")
         breakButton.name = "breakButton"
         breakButton.fontSize = 24
         breakButton.fontColor = .red
         breakButton.position = CGPoint(x: size.width / 2, y: 50)
+        breakButton.zPosition = 100 // 确保高于 CropNode
         addChild(breakButton)
         
-        // 添加返回按钮
+        // 添加“返回”按钮
         let backButton = SKLabelNode(text: "返回")
         backButton.name = "backButton"
         backButton.fontSize = 20
         backButton.fontColor = .blue
         backButton.position = CGPoint(x: 50, y: size.height - 50)
+        backButton.zPosition = 100 // 确保高于 CropNode
         addChild(backButton)
+        
+        // 创建“打破”按钮背景
+        let breakButtonBackground = SKSpriteNode(color: UIColor.red.withAlphaComponent(0.5), size: CGSize(width: 100, height: 50))
+        breakButtonBackground.position = breakButton.position
+        breakButtonBackground.zPosition = 99 // 背景低于文字
+        breakButtonBackground.name = "breakButtonBackground"
+        addChild(breakButtonBackground)
+        
+        // 添加“打破”文字
+        let breakButtonLabel = SKLabelNode(text: "打破")
+        breakButtonLabel.fontSize = 24
+        breakButtonLabel.fontColor = .white
+        breakButtonLabel.position = CGPoint.zero
+        breakButtonBackground.addChild(breakButtonLabel)
+        
+        // 同样方式创建“返回”按钮
+        let backButtonBackground = SKSpriteNode(color: UIColor.blue.withAlphaComponent(0.5), size: CGSize(width: 80, height: 40))
+        backButtonBackground.position = backButton.position
+        backButtonBackground.zPosition = 99
+        backButtonBackground.name = "backButtonBackground"
+        addChild(backButtonBackground)
+        
+        let backButtonLabel = SKLabelNode(text: "返回")
+        backButtonLabel.fontSize = 20
+        backButtonLabel.fontColor = .white
+        backButtonLabel.position = CGPoint.zero
+        backButtonBackground.addChild(backButtonLabel)
     }
     
     // 移除打破界面元素
@@ -173,6 +248,14 @@ class GameScene: SKScene {
         if let objectNode = objectNode {
             objectNode.removeFromParent()
         }
+        
+        // 移除 CropNode
+        if let cropNode = cropNode {
+            cropNode.removeFromParent()
+        }
+        
+        maskNode = nil
+        cropNode = nil
         
         // 移除“打破”按钮
         if let breakButton = childNode(withName: "breakButton") {
@@ -183,5 +266,26 @@ class GameScene: SKScene {
         if let backButton = childNode(withName: "backButton") {
             backButton.removeFromParent()
         }
+    }
+    
+    // 生成随机遮罩
+    func generateRandomMask(size: CGSize, holeCount: Int, holeRadiusRange: ClosedRange<CGFloat>) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let img = renderer.image { ctx in
+            // 填充白色（表示可见部分）
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            
+            // 绘制黑色洞（表示隐藏部分）
+            for _ in 0..<holeCount {
+                let radius = CGFloat.random(in: holeRadiusRange)
+                let x = CGFloat.random(in: radius...(size.width - radius))
+                let y = CGFloat.random(in: radius...(size.height - radius))
+                let holeRect = CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)
+                UIColor.black.setFill()
+                ctx.cgContext.fillEllipse(in: holeRect)
+            }
+        }
+        return img
     }
 }
