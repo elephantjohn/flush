@@ -9,6 +9,12 @@ import SpriteKit
 import GameplayKit
 import UIKit  // 引入 UIKit 用于震动反馈
 
+// 定义可选物体结构体，包含名称和对应的 Emoji
+struct AvailableObject {
+    let name: String
+    let emoji: String
+}
+
 class GameScene: SKScene {
     
     // 添加物体节点
@@ -16,8 +22,13 @@ class GameScene: SKScene {
     
     // 添加物体选择相关节点
     var selectionBackground: SKSpriteNode!
-    var objectButtons: [SKSpriteNode] = []
-    let availableObjects = ["bottle", "chair", "woman", "man"] // 物体名称数组，确保这些图片已添加到 Assets.xcassets
+    var objectButtons: [SKNode] = [] // 使用 SKNode 以容纳 Emoji 和标签
+    let availableObjects: [AvailableObject] = [
+        AvailableObject(name: "bottle", emoji: "🥤"),
+        AvailableObject(name: "chair", emoji: "🪑"),
+        AvailableObject(name: "woman", emoji: "👩"),
+        AvailableObject(name: "man", emoji: "👨")
+    ]
     
     override func didMove(to view: SKView) {
         // 清除所有现有子节点
@@ -39,6 +50,10 @@ class GameScene: SKScene {
             else if node.name?.hasPrefix("objectButton_") == true {
                 let selectedObject = node.name!.replacingOccurrences(of: "objectButton_", with: "")
                 selectObject(named: selectedObject)
+            }
+            else if node.name == "backButton" { // 处理返回按钮点击事件
+                showObjectSelection()
+                removeBreakInterface()
             }
         }
     }
@@ -73,21 +88,52 @@ class GameScene: SKScene {
         selectionBackground.zPosition = 10
         addChild(selectionBackground)
         
-        // 创建物体选择按钮
+        // 创建选择界面标题
+        let title = SKLabelNode(text: "请选择一个物体")
+        title.fontSize = 28
+        title.fontColor = .white
+        title.position = CGPoint(x: 0, y: selectionBackground.size.height / 2 - 50)
+        title.zPosition = 11
+        title.horizontalAlignmentMode = .center
+        selectionBackground.addChild(title)
+        
+        // 创建物体选择按钮及标签
         let buttonSize = CGSize(width: 80, height: 80)
-        let padding: CGFloat = 20
+        let padding: CGFloat = 30
         let totalWidth = CGFloat(availableObjects.count) * (buttonSize.width + padding) - padding
         let startX = (size.width - totalWidth) / 2 + buttonSize.width / 2
         let yPosition = size.height / 2
         
-        for (index, objectName) in availableObjects.enumerated() {
-            let button = SKSpriteNode(imageNamed: "\(objectName)_icon") // 确保这些图标已添加到 Assets.xcassets
-            button.name = "objectButton_\(objectName)"
-            button.size = buttonSize
-            button.position = CGPoint(x: startX + CGFloat(index) * (buttonSize.width + padding), y: yPosition)
-            button.zPosition = 11
-            addChild(button)
-            objectButtons.append(button)
+        for (index, availableObject) in availableObjects.enumerated() {
+            let objectName = availableObject.name
+            let objectEmoji = availableObject.emoji
+            
+            // 创建按钮节点
+            let buttonNode = SKNode()
+            buttonNode.name = "objectButton_\(objectName)"
+            buttonNode.position = CGPoint(x: startX + CGFloat(index) * (buttonSize.width + padding), y: yPosition)
+            buttonNode.zPosition = 11
+            
+            // 添加物体 Emoji
+            let emojiLabel = SKLabelNode(text: objectEmoji)
+            emojiLabel.fontSize = 40
+            emojiLabel.position = CGPoint(x: 0, y: 20)
+            emojiLabel.horizontalAlignmentMode = .center
+            emojiLabel.verticalAlignmentMode = .center
+            buttonNode.addChild(emojiLabel)
+            
+            // 添加物体名称标签
+            let nameLabel = SKLabelNode(text: objectName.capitalized)
+            nameLabel.fontSize = 16
+            nameLabel.fontColor = .white
+            nameLabel.position = CGPoint(x: 0, y: -buttonSize.height / 2 - 10) // 物体名称在 Emoji 下方
+            nameLabel.horizontalAlignmentMode = .center
+            nameLabel.verticalAlignmentMode = .top
+            nameLabel.name = "" // 避免与按钮节点冲突
+            buttonNode.addChild(nameLabel)
+            
+            addChild(buttonNode)
+            objectButtons.append(buttonNode)
         }
     }
     
@@ -112,5 +158,30 @@ class GameScene: SKScene {
         breakButton.fontColor = .red
         breakButton.position = CGPoint(x: size.width / 2, y: 50)
         addChild(breakButton)
+        
+        // 添加返回按钮
+        let backButton = SKLabelNode(text: "返回")
+        backButton.name = "backButton"
+        backButton.fontSize = 20
+        backButton.fontColor = .blue
+        backButton.position = CGPoint(x: 50, y: size.height - 50)
+        addChild(backButton)
+    }
+    
+    // 移除打破界面元素
+    func removeBreakInterface() {
+        if let objectNode = objectNode {
+            objectNode.removeFromParent()
+        }
+        
+        // 移除“打破”按钮
+        if let breakButton = childNode(withName: "breakButton") {
+            breakButton.removeFromParent()
+        }
+        
+        // 移除“返回”按钮
+        if let backButton = childNode(withName: "backButton") {
+            backButton.removeFromParent()
+        }
     }
 }
