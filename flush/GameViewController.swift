@@ -15,20 +15,21 @@ class GameViewController: UIViewController {
         super.viewDidLoad()
         
         if let view = self.view as! SKView? {
-            // Load the SKScene from 'GameScene.sks'
-            if let scene = SKScene(fileNamed: "GameScene") {
-                // Set the scale mode to scale to fit the window
-                scene.scaleMode = .aspectFill
-                
-                // Present the scene
-                view.presentScene(scene)
-            }
+            // 创建并加载 GameScene
+            let scene = GameScene(size: view.bounds.size)
+            scene.scaleMode = .aspectFill
             
-            view.ignoresSiblingOrder = true
-            
+            // 显示FPS和节点计数（可选）
             view.showsFPS = true
             view.showsNodeCount = true
+            
+            // 呈现场景
+            view.presentScene(scene)
         }
+    }
+
+    override var shouldAutorotate: Bool {
+        return true
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
