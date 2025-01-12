@@ -472,7 +472,7 @@ class GameScene: SKScene {
         let title = SKLabelNode(text: "请选择一个物体")
         title.fontSize = 28
         title.fontColor = .white
-        title.position = CGPoint(x: 0, y: selectionBackground.size.height / 2 - 50)
+        title.position = CGPoint(x: 0, y: selectionBackground.size.height / 2 - 100)
         title.zPosition = 11
         title.horizontalAlignmentMode = .center
         selectionBackground.addChild(title)
@@ -571,7 +571,7 @@ class GameScene: SKScene {
         
         // 添加"轰"文字
         let breakButtonLabel = SKLabelNode(text: "轰")
-        breakButtonLabel.fontSize = 24
+        breakButtonLabel.fontSize = 48
         breakButtonLabel.fontColor = .white
         breakButtonLabel.position = CGPoint.zero
         breakButtonBackground.addChild(breakButtonLabel)
@@ -584,7 +584,7 @@ class GameScene: SKScene {
         addChild(backButtonBackground)
         
         let backButtonLabel = SKLabelNode(text: "返回")
-        backButtonLabel.fontSize = 20
+        backButtonLabel.fontSize = 40
         backButtonLabel.fontColor = .white
         backButtonLabel.position = CGPoint.zero
         backButtonBackground.addChild(backButtonLabel)
