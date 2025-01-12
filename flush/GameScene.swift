@@ -9,6 +9,17 @@ import SpriteKit
 import GameplayKit
 import UIKit  // 引入 UIKit 用于震动反馈
 
+// 在文件顶部添加扩展
+extension UIImage {
+    static func image(from layer: CALayer) -> UIImage {
+        UIGraphicsBeginImageContextWithOptions(layer.bounds.size, layer.isOpaque, 0.0)
+        layer.render(in: UIGraphicsGetCurrentContext()!)
+        let image = UIGraphicsGetImageFromCurrentImageContext()!
+        UIGraphicsEndImageContext()
+        return image
+    }
+}
+
 // 定义形状类型
 enum HoleShape {
     case lightning  // 闪电形状
@@ -101,12 +112,25 @@ enum HoleShape {
     }
 }
 
+// 在 GameSettings 结构体中添加自定义形状管理
+struct CustomShapeInfo {
+    let name: String
+    let path: CGPath
+    let createdAt: Date
+}
+
 // 游戏设置结构体
 struct GameSettings {
     var holeShape: HoleShape = .lightning
     var holesPerBreak: Int = 1
     var holeRadiusRange: ClosedRange<CGFloat> = 30...50
-    var customShapes: [CGPath] = []  // 保存用户自定义的形状
+    var customShapes: [CustomShapeInfo] = []  // 修改为存储CustomShapeInfo
+    
+    mutating func addCustomShape(path: CGPath, name: String? = nil) {
+        let shapeName = name ?? DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
+        let shapeInfo = CustomShapeInfo(name: shapeName, path: path, createdAt: Date())
+        customShapes.append(shapeInfo)
+    }
 }
 
 // 定义可选物体结构体，包含名称和对应的 Emoji
@@ -142,7 +166,14 @@ class GameScene: SKScene {
     var drawingPath: CGMutablePath?
     var drawingNode: SKShapeNode?
     
+    var tooltipNode: SKNode?
+    var drawingPanel: SKSpriteNode?
+    var isShowingCustomShapes = false
+    
     override func didMove(to view: SKView) {
+        // 生成背景图片
+        generatePanelBackground()
+        
         // 清除所有现有子节点
         removeAllChildren()
         
@@ -153,8 +184,101 @@ class GameScene: SKScene {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         let location = touch.location(in: self)
+        
+        // 获取点击位置的所有节点
         let nodesAtPoint = nodes(at: location)
         
+        // 如果在绘图模式下，处理绘图相关的点击
+        if isDrawingMode {
+            // 检查是否点击了取消按钮
+            if nodesAtPoint.contains(where: { $0.name == "cancelDrawing" || $0.parent?.name == "cancelDrawing" }) {
+                cleanupDrawingPanel()
+                return
+            }
+            
+            // 检查是否点击了保存按钮
+            if nodesAtPoint.contains(where: { $0.name == "saveDrawing" || $0.parent?.name == "saveDrawing" }) {
+                if let path = drawingPath {
+                    // 创建一个新的路径，将绘制的路径转换为相对于中心点的坐标
+                    let bounds = drawingNode?.path?.boundingBox ?? .zero
+                    let centerX = bounds.midX
+                    let centerY = bounds.midY
+                    
+                    // 创建一个变换，将路径移动到原点并缩放到合适的大小
+                    var transform = CGAffineTransform.identity
+                    transform = transform.translatedBy(x: -centerX, y: -centerY)
+                    
+                    // 将原始路径应用变换
+                    if let transformedPath = path.copy(using: &transform) {
+                        // 显示输入框让用户输入名称
+                        let alertController = UIAlertController(
+                            title: "保存形状",
+                            message: "请为这个形状命名",
+                            preferredStyle: .alert
+                        )
+                        
+                        alertController.addTextField { textField in
+                            textField.placeholder = "形状名称"
+                            // 设置默认名称为当前时间
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd HH:mm"
+                            textField.text = "形状_" + dateFormatter.string(from: Date())
+                        }
+                        
+                        let saveAction = UIAlertAction(title: "保存", style: .default) { [weak self] _ in
+                            guard let self = self else { return }
+                            let name = alertController.textFields?.first?.text ?? "未命名形状"
+                            
+                            // 保存转换后的路径
+                            self.gameSettings.addCustomShape(path: transformedPath, name: name)
+                            
+                            // 清理绘图面板
+                            self.cleanupDrawingPanel()
+                        }
+                        
+                        let cancelAction = UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+                            guard let self = self else { return }
+                            self.cleanupDrawingPanel()
+                        }
+                        
+                        alertController.addAction(saveAction)
+                        alertController.addAction(cancelAction)
+                        
+                        // 获取当前场景的视图控制器并显示警告框
+                        if let viewController = self.view?.window?.rootViewController {
+                            viewController.present(alertController, animated: true)
+                        }
+                    }
+                }
+                return
+            }
+            
+            // 如果在绘图区域内，开始绘制
+            if let drawArea = drawingPanel?.childNode(withName: "drawArea") {
+                let locationInDrawArea = drawArea.convert(location, from: self)
+                
+                // 检查是否在绘制区域内
+                if abs(locationInDrawArea.x) <= drawArea.frame.width/2 &&
+                   abs(locationInDrawArea.y) <= drawArea.frame.height/2 {
+                    // 创建新的路径
+                    drawingPath = CGMutablePath()
+                    drawingPath?.move(to: locationInDrawArea)
+                    
+                    // 创建或更新绘制节点
+                    if drawingNode == nil {
+                        drawingNode = SKShapeNode()
+                        drawingNode?.strokeColor = .white
+                        drawingNode?.lineWidth = 2
+                        drawArea.addChild(drawingNode!)
+                    }
+                    drawingNode?.path = drawingPath
+                    return
+                }
+            }
+            return
+        }
+        
+        // 处理其他按钮点击
         for node in nodesAtPoint {
             if node.name == "breakButton" {
                 breakObject()
@@ -178,6 +302,7 @@ class GameScene: SKScene {
                 let shapeName = node.name!.replacingOccurrences(of: "shape_", with: "")
                     .replacingOccurrences(of: "shapeButton_", with: "")
                 
+                // 重置所有形状按钮的颜色
                 if let panel = node.parent?.parent {
                     for child in panel.children {
                         if child.name?.hasPrefix("shapeButton_") == true {
@@ -186,22 +311,33 @@ class GameScene: SKScene {
                     }
                 }
                 
+                // 高亮选中的按钮
                 if let buttonNode = node.name?.hasPrefix("shape_") == true ? node.parent : node {
                     (buttonNode as? SKSpriteNode)?.color = UIColor(red: 0.3, green: 0.6, blue: 1.0, alpha: 1.0)
                 }
                 
-                switch shapeName {
-                case "闪电":
-                    gameSettings.holeShape = .lightning
-                case "圆形":
-                    gameSettings.holeShape = .circle
-                case "三角形":
-                    gameSettings.holeShape = .triangle
-                case "自定义":
-                    isDrawingMode = true
-                    node.parent?.parent?.removeFromParent()
-                default:
-                    break
+                // 处理形状选择
+                if shapeName.hasPrefix("custom_") {
+                    // 处理已保存的自定义形状
+                    if let index = Int(shapeName.replacingOccurrences(of: "custom_", with: "")) {
+                        let shapeInfo = gameSettings.customShapes[index]
+                        gameSettings.holeShape = .custom(path: shapeInfo.path)
+                    }
+                } else {
+                    switch shapeName {
+                    case "闪电":
+                        gameSettings.holeShape = .lightning
+                    case "圆形":
+                        gameSettings.holeShape = .circle
+                    case "三角形":
+                        gameSettings.holeShape = .triangle
+                    case "自定义":
+                        isDrawingMode = true
+                        node.parent?.parent?.removeFromParent()
+                        showDrawingPanel()
+                    default:
+                        break
+                    }
                 }
                 
                 animateButtonPress(node)
@@ -243,6 +379,39 @@ class GameScene: SKScene {
                     sizeLabel.text = "\(newSize)"
                 }
                 animateButtonPress(node)
+            }
+            else if node.name == "helpCount" || node.parent?.name == "helpCount" || node.name == "?" {
+                let helpNode = node.name == "helpCount" ? node : 
+                              node.parent?.name == "helpCount" ? node.parent! : 
+                              node.parent!
+                showTooltip(text: "每次点击轰按钮时产生的破坏数量", at: helpNode)
+                animateButtonPress(helpNode)
+            }
+            else if node.name == "helpSize" || node.parent?.name == "helpSize" || (node.name == "?" && node.parent?.name == "helpSize") {
+                let helpNode = node.name == "helpSize" ? node : 
+                              node.parent?.name == "helpSize" ? node.parent! : 
+                              node.parent!
+                showTooltip(text: "破坏效果的范围大小", at: helpNode)
+                animateButtonPress(helpNode)
+            }
+            else if node.name?.hasPrefix("shape_") == true && node.name?.contains("自定义") == true {
+                showCustomShapesList()
+            }
+            else if node.name == "newCustomShape" {
+                node.parent?.removeFromParent()
+                showDrawingPanel()
+            }
+            else if node.name?.hasPrefix("customShape_") == true {
+                if let index = Int(node.name!.replacingOccurrences(of: "customShape_", with: "")) {
+                    let shapeInfo = gameSettings.customShapes[index]
+                    gameSettings.holeShape = .custom(path: shapeInfo.path)
+                    node.parent?.removeFromParent()
+                }
+            }
+            
+            // 如果点击了其他区域，隐藏提示
+            if node.name?.hasPrefix("help") != true {
+                hideTooltip()
             }
         }
     }
@@ -505,34 +674,49 @@ class GameScene: SKScene {
     
     // 添加绘制相关的函数
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard isDrawingMode, let touch = touches.first else { return }
-        
+        guard let touch = touches.first else { return }
         let location = touch.location(in: self)
-        if drawingPath == nil {
-            drawingPath = CGMutablePath()
-            drawingPath?.move(to: location)
+        
+        // 如果在绘图模式下，继续绘制
+        if isDrawingMode, let drawArea = drawingPanel?.childNode(withName: "drawArea"),
+           let path = drawingPath {
+            let locationInDrawArea = drawArea.convert(location, from: self)
             
-            drawingNode = SKShapeNode()
-            drawingNode?.strokeColor = .white
-            drawingNode?.lineWidth = 2
-            addChild(drawingNode!)
-        } else {
-            drawingPath?.addLine(to: location)
-            drawingNode?.path = drawingPath
+            // 检查是否在绘制区域内
+            if abs(locationInDrawArea.x) <= drawArea.frame.width/2 &&
+               abs(locationInDrawArea.y) <= drawArea.frame.height/2 {
+                // 添加线段到路径
+                path.addLine(to: locationInDrawArea)
+                drawingNode?.path = path
+            }
         }
     }
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if isDrawingMode {
-            if let path = drawingPath {
-                // 保存自定义形状
-                gameSettings.customShapes.append(path)
-                gameSettings.holeShape = .custom(path: path)
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: self)
+        
+        // 如果在绘图模式下，结束绘制
+        if isDrawingMode, let drawArea = drawingPanel?.childNode(withName: "drawArea"),
+           let path = drawingPath {
+            let locationInDrawArea = drawArea.convert(location, from: self)
+            
+            // 检查是否点击了保存或取消按钮
+            if let nodes = scene?.nodes(at: location) {
+                for node in nodes {
+                    if node.name == "saveDrawing" || node.name == "cancelDrawing" {
+                        return  // 如果点击了按钮，不添加点
+                    }
+                }
             }
-            drawingPath = nil
-            drawingNode?.removeFromParent()
-            drawingNode = nil
-            isDrawingMode = false
+            
+            // 只有在绘制区域内才添加点
+            if abs(locationInDrawArea.x) <= drawArea.frame.width/2 &&
+               abs(locationInDrawArea.y) <= drawArea.frame.height/2 {
+                path.addLine(to: locationInDrawArea)
+                path.closeSubpath()
+                drawingNode?.path = path
+            }
         }
     }
     
@@ -544,9 +728,39 @@ class GameScene: SKScene {
         settingsPanel.zPosition = 1000
         settingsPanel.name = "settingsPanel"
         
-        // 添加圆角和边框效果
-        let borderTexture = SKTexture(imageNamed: "panel_background") // 如果没有这个图片，会自动降级使用纯色背景
-        settingsPanel.texture = borderTexture
+        // 添加背景图片和效果
+        let backgroundTexture = SKTexture(imageNamed: "panel_background")
+        if backgroundTexture.size().width > 0 {  // 检查纹理是否有效
+            settingsPanel.texture = backgroundTexture
+            settingsPanel.color = UIColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 1.0)
+            settingsPanel.colorBlendFactor = 0.3 // 添加一点颜色混合
+        } else {
+            // 如果没有背景图片，创建渐变背景
+            let gradientNode = SKSpriteNode(color: .clear, size: settingsPanel.size)
+            let gradientLayer = CAGradientLayer()
+            gradientLayer.frame = CGRect(origin: .zero, size: settingsPanel.size)
+            gradientLayer.colors = [
+                UIColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.95).cgColor,
+                UIColor(red: 0.1, green: 0.15, blue: 0.2, alpha: 0.95).cgColor
+            ]
+            gradientLayer.startPoint = CGPoint(x: 0.5, y: 1.0)
+            gradientLayer.endPoint = CGPoint(x: 0.5, y: 0.0)
+            gradientLayer.cornerRadius = 20
+            
+            let gradientImage = UIImage.image(from: gradientLayer)
+            gradientNode.texture = SKTexture(image: gradientImage)
+            gradientNode.zPosition = -1
+            settingsPanel.addChild(gradientNode)
+        }
+        
+        // 添加边框效果
+        let borderNode = SKShapeNode(rect: CGRect(x: -settingsPanel.size.width/2, y: -settingsPanel.size.height/2,
+                                                 width: settingsPanel.size.width, height: settingsPanel.size.height),
+                                   cornerRadius: 20)
+        borderNode.strokeColor = UIColor(white: 1.0, alpha: 0.2)
+        borderNode.lineWidth = 2
+        settingsPanel.addChild(borderNode)
+        
         addChild(settingsPanel)
         
         // 添加标题
@@ -562,12 +776,43 @@ class GameScene: SKScene {
         titleBackground.addChild(title)
         
         // 添加形状选择按钮
-        let shapes = ["闪电", "圆形", "三角形", "自定义"]
+        let shapes = ["闪电", "圆形", "三角形"]
         let buttonWidth: CGFloat = 140
         let buttonHeight: CGFloat = 50
         let buttonSpacing: CGFloat = 20
-        let startY: CGFloat = 130
+        let startY: CGFloat = 150  // 调整起始Y坐标
         
+        // 添加形状选择标题
+        let shapesTitle = SKLabelNode(text: "形状选择")
+        shapesTitle.fontSize = 20
+        shapesTitle.fontName = "PingFangSC-Regular"
+        shapesTitle.fontColor = .white
+        shapesTitle.position = CGPoint(x: -120, y: 100)
+        settingsPanel.addChild(shapesTitle)
+        
+        // 添加第一条分隔线
+        let separator1 = SKShapeNode(rectOf: CGSize(width: 300, height: 1))
+        separator1.fillColor = UIColor(white: 0.5, alpha: 0.5)
+        separator1.strokeColor = UIColor.clear
+        separator1.position = CGPoint(x: 0, y: -40)
+        settingsPanel.addChild(separator1)
+        
+        // 添加数量控制标题
+        let quantityTitle = SKLabelNode(text: "破坏数量")
+        quantityTitle.fontSize = 20
+        quantityTitle.fontName = "PingFangSC-Regular"
+        quantityTitle.fontColor = .white
+        quantityTitle.position = CGPoint(x: -120, y: -100)
+        settingsPanel.addChild(quantityTitle)
+        
+        // 添加控制区域分隔线
+        let controlSeparator = SKShapeNode(rectOf: CGSize(width: 300, height: 1))
+        controlSeparator.fillColor = UIColor(white: 0.5, alpha: 0.5)
+        controlSeparator.strokeColor = UIColor.clear
+        controlSeparator.position = CGPoint(x: 0, y: -130)
+        settingsPanel.addChild(controlSeparator)
+        
+        // 添加预设形状按钮
         for (index, shapeName) in shapes.enumerated() {
             let row = index / 2
             let col = index % 2
@@ -582,8 +827,7 @@ class GameScene: SKScene {
             switch gameSettings.holeShape {
             case .lightning where shapeName == "闪电",
                  .circle where shapeName == "圆形",
-                 .triangle where shapeName == "三角形",
-                 .custom where shapeName == "自定义":
+                 .triangle where shapeName == "三角形":
                 buttonBackground.color = UIColor(red: 0.3, green: 0.6, blue: 1.0, alpha: 1.0)
             default:
                 break
@@ -600,19 +844,72 @@ class GameScene: SKScene {
             buttonBackground.addChild(button)
         }
         
-        // 添加数量调节器
-        let countTitle = SKLabelNode(text: "破坏数量")
-        countTitle.fontSize = 20
-        countTitle.fontName = "PingFangSC-Regular"
-        countTitle.fontColor = .white
-        countTitle.position = CGPoint(x: -120, y: 0)
-        settingsPanel.addChild(countTitle)
+        // 添加自定义形状按钮
+        let customButtonBackground = SKSpriteNode(color: UIColor(white: 0.3, alpha: 1.0), size: CGSize(width: buttonWidth, height: buttonHeight))
+        customButtonBackground.position = CGPoint(x: -70, y: startY - CGFloat(2) * (buttonHeight + buttonSpacing))
+        customButtonBackground.name = "shapeButton_自定义"
+        settingsPanel.addChild(customButtonBackground)
         
-        // 添加减号按钮
+        let customButton = SKLabelNode(text: "自定义")
+        customButton.fontSize = 24
+        customButton.fontName = "PingFangSC-Regular"
+        customButton.fontColor = .white
+        customButton.position = CGPoint(x: 0, y: -8)
+        customButton.name = "shape_自定义"
+        customButtonBackground.addChild(customButton)
+        
+        // 如果有已保存的自定义形状，添加查看按钮
+        if !gameSettings.customShapes.isEmpty {
+            let savedButtonBackground = SKSpriteNode(color: UIColor(white: 0.3, alpha: 1.0), size: CGSize(width: buttonWidth, height: buttonHeight))
+            savedButtonBackground.position = CGPoint(x: 70, y: startY - CGFloat(2) * (buttonHeight + buttonSpacing))
+            savedButtonBackground.name = "shapeButton_saved"
+            settingsPanel.addChild(savedButtonBackground)
+            
+            let savedButton = SKLabelNode(text: "已保存")
+            savedButton.fontSize = 24
+            savedButton.fontName = "PingFangSC-Regular"
+            savedButton.fontColor = .white
+            savedButton.position = CGPoint(x: 0, y: -8)
+            savedButton.name = "shape_saved"
+            savedButtonBackground.addChild(savedButton)
+        }
+        
+        // 添加第二个分隔线
+        let separator2 = SKShapeNode(rectOf: CGSize(width: 300, height: 1))
+        separator2.fillColor = UIColor(white: 0.5, alpha: 0.5)
+        separator2.strokeColor = .clear
+        separator2.position = CGPoint(x: 0, y: -130)
+        settingsPanel.addChild(separator2)
+        
+        // 添加数量和大小控制区域标题
+        let controlTitle = SKLabelNode(text: "效果控制")
+        controlTitle.fontSize = 20
+        controlTitle.fontName = "PingFangSC-Regular"
+        controlTitle.fontColor = .white
+        controlTitle.position = CGPoint(x: 0, y: -70)
+        settingsPanel.addChild(controlTitle)
+        
+        // 添加帮助按钮
+        let countHelpButton = SKShapeNode(circleOfRadius: 10)
+        countHelpButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
+        countHelpButton.strokeColor = .white
+        countHelpButton.lineWidth = 1
+        countHelpButton.position = CGPoint(x: -80, y: -100)  // 调整Y坐标
+        countHelpButton.name = "helpCount"
+        settingsPanel.addChild(countHelpButton)
+        
+        let countHelpLabel = SKLabelNode(text: "?")
+        countHelpLabel.fontSize = 14
+        countHelpLabel.fontName = "PingFangSC-Medium"
+        countHelpLabel.fontColor = .white
+        countHelpLabel.position = CGPoint(x: 0, y: -5)
+        countHelpButton.addChild(countHelpLabel)
+        
+        // 添加数量控制器
         let minusButton = SKShapeNode(circleOfRadius: 20)
         minusButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
         minusButton.strokeColor = .clear
-        minusButton.position = CGPoint(x: -50, y: 0)
+        minusButton.position = CGPoint(x: -50, y: -100)  // 调整Y坐标
         minusButton.name = "minus_count"
         settingsPanel.addChild(minusButton)
         
@@ -622,20 +919,18 @@ class GameScene: SKScene {
         minusLabel.position = CGPoint(x: 0, y: -10)
         minusButton.addChild(minusLabel)
         
-        // 添加数量显示
         let countLabel = SKLabelNode(text: "\(gameSettings.holesPerBreak)")
         countLabel.fontSize = 24
         countLabel.fontName = "PingFangSC-Medium"
         countLabel.fontColor = .white
-        countLabel.position = CGPoint(x: 0, y: 0)
+        countLabel.position = CGPoint(x: 0, y: -100)  // 调整Y坐标
         countLabel.name = "countLabel"
         settingsPanel.addChild(countLabel)
         
-        // 添加加号按钮
         let plusButton = SKShapeNode(circleOfRadius: 20)
         plusButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
         plusButton.strokeColor = .clear
-        plusButton.position = CGPoint(x: 50, y: 0)
+        plusButton.position = CGPoint(x: 50, y: -100)  // 调整Y坐标
         plusButton.name = "plus_count"
         settingsPanel.addChild(plusButton)
         
@@ -650,14 +945,30 @@ class GameScene: SKScene {
         sizeTitle.fontSize = 20
         sizeTitle.fontName = "PingFangSC-Regular"
         sizeTitle.fontColor = .white
-        sizeTitle.position = CGPoint(x: -120, y: -80)
+        sizeTitle.position = CGPoint(x: -120, y: -160)  // 调整Y坐标
         settingsPanel.addChild(sizeTitle)
         
-        // 添加大小减号按钮
+        // 添加大小帮助按钮
+        let sizeHelpButton = SKShapeNode(circleOfRadius: 10)
+        sizeHelpButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
+        sizeHelpButton.strokeColor = .white
+        sizeHelpButton.lineWidth = 1
+        sizeHelpButton.position = CGPoint(x: -80, y: -160)  // 调整Y坐标
+        sizeHelpButton.name = "helpSize"
+        settingsPanel.addChild(sizeHelpButton)
+        
+        let sizeHelpLabel = SKLabelNode(text: "?")
+        sizeHelpLabel.fontSize = 14
+        sizeHelpLabel.fontName = "PingFangSC-Medium"
+        sizeHelpLabel.fontColor = .white
+        sizeHelpLabel.position = CGPoint(x: 0, y: -5)
+        sizeHelpButton.addChild(sizeHelpLabel)
+        
+        // 添加大小控制器
         let minusSizeButton = SKShapeNode(circleOfRadius: 20)
         minusSizeButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
         minusSizeButton.strokeColor = .clear
-        minusSizeButton.position = CGPoint(x: -50, y: -80)
+        minusSizeButton.position = CGPoint(x: -50, y: -160)  // 调整Y坐标
         minusSizeButton.name = "minus_size"
         settingsPanel.addChild(minusSizeButton)
         
@@ -667,20 +978,18 @@ class GameScene: SKScene {
         minusSizeLabel.position = CGPoint(x: 0, y: -10)
         minusSizeButton.addChild(minusSizeLabel)
         
-        // 添加大小显示
         let sizeLabel = SKLabelNode(text: "\(Int(gameSettings.holeRadiusRange.lowerBound))")
         sizeLabel.fontSize = 24
         sizeLabel.fontName = "PingFangSC-Medium"
         sizeLabel.fontColor = .white
-        sizeLabel.position = CGPoint(x: 0, y: -80)
+        sizeLabel.position = CGPoint(x: 0, y: -160)  // 调整Y坐标
         sizeLabel.name = "sizeLabel"
         settingsPanel.addChild(sizeLabel)
         
-        // 添加大小加号按钮
         let plusSizeButton = SKShapeNode(circleOfRadius: 20)
         plusSizeButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
         plusSizeButton.strokeColor = .clear
-        plusSizeButton.position = CGPoint(x: 50, y: -80)
+        plusSizeButton.position = CGPoint(x: 50, y: -160)  // 调整Y坐标
         plusSizeButton.name = "plus_size"
         settingsPanel.addChild(plusSizeButton)
         
@@ -692,7 +1001,7 @@ class GameScene: SKScene {
         
         // 添加确认按钮
         let confirmButton = SKSpriteNode(color: UIColor(red: 0.3, green: 0.8, blue: 0.3, alpha: 1.0), size: CGSize(width: 200, height: 50))
-        confirmButton.position = CGPoint(x: 0, y: -180)
+        confirmButton.position = CGPoint(x: 0, y: -220)  // 调整Y坐标
         confirmButton.name = "confirmSettings"
         settingsPanel.addChild(confirmButton)
         
@@ -709,5 +1018,298 @@ class GameScene: SKScene {
         let scaleDown = SKAction.scale(to: 0.9, duration: 0.05)
         let scaleUp = SKAction.scale(to: 1.0, duration: 0.05)
         node.run(SKAction.sequence([scaleDown, scaleUp]))
+    }
+    
+    // 在 GameScene 类中添加生成背景的函数
+    func generatePanelBackground() {
+        // 创建渐变图层
+        let gradientLayer = CAGradientLayer()
+        gradientLayer.frame = CGRect(origin: .zero, size: CGSize(width: 700, height: 1000)) // 2x 大小
+        
+        // 设置渐变颜色
+        gradientLayer.colors = [
+            UIColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.98).cgColor,
+            UIColor(red: 0.15, green: 0.2, blue: 0.3, alpha: 0.98).cgColor,
+            UIColor(red: 0.1, green: 0.15, blue: 0.25, alpha: 0.98).cgColor
+        ]
+        
+        // 设置渐变点
+        gradientLayer.locations = [0.0, 0.5, 1.0]
+        gradientLayer.startPoint = CGPoint(x: 0.0, y: 0.0)
+        gradientLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
+        
+        // 添加圆角
+        gradientLayer.cornerRadius = 40 // 2x 大小的圆角
+        
+        // 创建一个图形上下文
+        UIGraphicsBeginImageContextWithOptions(gradientLayer.frame.size, false, 0)
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        
+        // 渲染渐变层
+        gradientLayer.render(in: context)
+        
+        // 添加内部光晕效果
+        let glowPath = UIBezierPath(roundedRect: gradientLayer.bounds.insetBy(dx: 20, dy: 20),
+                                  cornerRadius: 35)
+        context.saveGState()
+        context.setLineWidth(15)
+        context.setShadow(offset: .zero, blur: 15, color: UIColor(white: 1, alpha: 0.3).cgColor)
+        UIColor(white: 1, alpha: 0.1).setStroke()
+        glowPath.stroke()
+        context.restoreGState()
+        
+        // 添加图案效果
+        let patternSize: CGFloat = 50
+        let patternColor = UIColor(white: 1, alpha: 0.03)
+        
+        for row in 0...Int(gradientLayer.frame.height/patternSize) {
+            for col in 0...Int(gradientLayer.frame.width/patternSize) {
+                let x = CGFloat(col) * patternSize
+                let y = CGFloat(row) * patternSize
+                
+                let path = UIBezierPath()
+                path.move(to: CGPoint(x: x, y: y))
+                path.addLine(to: CGPoint(x: x + patternSize/2, y: y + patternSize/2))
+                
+                patternColor.setStroke()
+                path.lineWidth = 1
+                path.stroke()
+            }
+        }
+        
+        // 获取生成的图像
+        guard let image = UIGraphicsGetCurrentContext()?.makeImage() else { return }
+        UIGraphicsEndImageContext()
+        
+        // 将图像保存到文件
+        if let data = UIImage(cgImage: image).pngData(),
+           let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let fileURL = documentsPath.appendingPathComponent("panel_background.png")
+            try? data.write(to: fileURL)
+            print("Background saved to: \(fileURL.path)")
+        }
+    }
+    
+    // 添加显示提示的函数
+    func showTooltip(text: String, at node: SKNode) {
+        // 移除现有的提示
+        tooltipNode?.removeFromParent()
+        
+        // 创建提示框
+        let tooltipWidth: CGFloat = 220
+        let tooltipHeight: CGFloat = 50
+        let tooltip = SKSpriteNode(color: UIColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.95), size: CGSize(width: tooltipWidth, height: tooltipHeight))
+        tooltip.position = CGPoint(x: node.position.x + tooltipWidth/2 + 20, y: node.position.y)
+        tooltip.zPosition = 3000
+        
+        // 添加边框
+        let border = SKShapeNode(rect: CGRect(x: -tooltipWidth/2, y: -tooltipHeight/2,
+                                            width: tooltipWidth, height: tooltipHeight),
+                               cornerRadius: 10)
+        border.strokeColor = UIColor(white: 1.0, alpha: 0.3)
+        border.lineWidth = 1
+        tooltip.addChild(border)
+        
+        // 添加文本
+        let label = SKLabelNode(text: text)
+        label.fontSize = 16
+        label.fontName = "PingFangSC-Regular"
+        label.fontColor = .white
+        label.position = CGPoint(x: 0, y: -8)
+        tooltip.addChild(label)
+        
+        // 添加到父节点
+        node.parent?.addChild(tooltip)
+        tooltipNode = tooltip
+        
+        // 添加动画效果
+        tooltip.setScale(0.5)
+        tooltip.alpha = 0
+        let scaleAction = SKAction.scale(to: 1.0, duration: 0.2)
+        let fadeAction = SKAction.fadeIn(withDuration: 0.2)
+        tooltip.run(SKAction.group([scaleAction, fadeAction]))
+    }
+    
+    // 添加隐藏提示的函数
+    func hideTooltip() {
+        tooltipNode?.run(SKAction.sequence([
+            SKAction.fadeOut(withDuration: 0.2),
+            SKAction.removeFromParent()
+        ]))
+        tooltipNode = nil
+    }
+    
+    // 显示绘制面板
+    func showDrawingPanel() {
+        // 创建绘制面板背景
+        let panel = SKSpriteNode(color: UIColor(white: 0.1, alpha: 0.95), size: CGSize(width: size.width * 0.8, height: size.height * 0.8))
+        panel.position = CGPoint(x: size.width/2, y: size.height/2)
+        panel.zPosition = 2000
+        
+        // 添加边框效果
+        let borderNode = SKShapeNode(rect: CGRect(x: -panel.size.width/2, y: -panel.size.height/2,
+                                                 width: panel.size.width, height: panel.size.height),
+                                   cornerRadius: 20)
+        borderNode.strokeColor = UIColor(white: 1.0, alpha: 0.2)
+        borderNode.lineWidth = 2
+        panel.addChild(borderNode)
+        
+        // 添加标题背景
+        let titleBg = SKSpriteNode(color: UIColor(red: 0.2, green: 0.2, blue: 0.3, alpha: 1.0),
+                                 size: CGSize(width: panel.size.width, height: 60))
+        titleBg.position = CGPoint(x: 0, y: panel.size.height/2 - 30)
+        panel.addChild(titleBg)
+        
+        // 添加标题
+        let title = SKLabelNode(text: "绘制自定义形状")
+        title.fontSize = 24
+        title.fontName = "PingFangSC-Medium"
+        title.fontColor = .white
+        title.position = CGPoint(x: 0, y: -10)
+        titleBg.addChild(title)
+        
+        // 添加绘制区域
+        let drawArea = SKSpriteNode(color: UIColor(white: 0.2, alpha: 1.0),
+                                  size: CGSize(width: panel.size.width * 0.8, height: panel.size.height * 0.6))
+        drawArea.position = CGPoint(x: 0, y: 0)
+        drawArea.name = "drawArea"
+        
+        // 添加绘制区域边框
+        let drawAreaBorder = SKShapeNode(rect: CGRect(x: -drawArea.size.width/2, y: -drawArea.size.height/2,
+                                                     width: drawArea.size.width, height: drawArea.size.height),
+                                       cornerRadius: 10)
+        drawAreaBorder.strokeColor = UIColor(white: 1.0, alpha: 0.3)
+        drawAreaBorder.lineWidth = 2
+        drawArea.addChild(drawAreaBorder)
+        
+        panel.addChild(drawArea)
+        
+        // 添加说明文字
+        let instruction = SKLabelNode(text: "在此区域内绘制形状")
+        instruction.fontSize = 16
+        instruction.fontName = "PingFangSC-Regular"
+        instruction.fontColor = UIColor(white: 0.8, alpha: 1.0)
+        instruction.position = CGPoint(x: 0, y: drawArea.position.y + drawArea.size.height/2 + 20)
+        panel.addChild(instruction)
+        
+        // 添加提示文字
+        let hint = SKLabelNode(text: "提示：绘制一个闭合的形状作为破坏效果")
+        hint.fontSize = 14
+        hint.fontName = "PingFangSC-Regular"
+        hint.fontColor = UIColor(white: 0.7, alpha: 1.0)
+        hint.position = CGPoint(x: 0, y: drawArea.position.y - drawArea.size.height/2 - 20)
+        panel.addChild(hint)
+        
+        // 添加保存按钮
+        let saveButton = SKSpriteNode(color: UIColor(red: 0.3, green: 0.8, blue: 0.3, alpha: 1.0),
+                                    size: CGSize(width: 120, height: 40))
+        saveButton.position = CGPoint(x: -70, y: -panel.size.height/2 + 40)
+        saveButton.name = "saveDrawing"
+        
+        // 添加保存按钮边框
+        let saveBorder = SKShapeNode(rect: CGRect(x: -60, y: -20, width: 120, height: 40), cornerRadius: 8)
+        saveBorder.strokeColor = UIColor(white: 1.0, alpha: 0.3)
+        saveBorder.lineWidth = 1
+        saveButton.addChild(saveBorder)
+        
+        panel.addChild(saveButton)
+        
+        let saveLabel = SKLabelNode(text: "保存")
+        saveLabel.fontSize = 18
+        saveLabel.fontName = "PingFangSC-Regular"
+        saveLabel.fontColor = .white
+        saveLabel.position = CGPoint(x: 0, y: -5)
+        saveButton.addChild(saveLabel)
+        
+        // 添加取消按钮
+        let cancelButton = SKSpriteNode(color: UIColor(red: 0.8, green: 0.3, blue: 0.3, alpha: 1.0),
+                                      size: CGSize(width: 120, height: 40))
+        cancelButton.position = CGPoint(x: 70, y: -panel.size.height/2 + 40)
+        cancelButton.name = "cancelDrawing"
+        
+        // 添加取消按钮边框
+        let cancelBorder = SKShapeNode(rect: CGRect(x: -60, y: -20, width: 120, height: 40), cornerRadius: 8)
+        cancelBorder.strokeColor = UIColor(white: 1.0, alpha: 0.3)
+        cancelBorder.lineWidth = 1
+        cancelButton.addChild(cancelBorder)
+        
+        panel.addChild(cancelButton)
+        
+        let cancelLabel = SKLabelNode(text: "取消")
+        cancelLabel.fontSize = 18
+        cancelLabel.fontName = "PingFangSC-Regular"
+        cancelLabel.fontColor = .white
+        cancelLabel.position = CGPoint(x: 0, y: -5)
+        cancelButton.addChild(cancelLabel)
+        
+        drawingPanel = panel
+        addChild(panel)
+        
+        // 添加出现动画
+        panel.setScale(0.5)
+        panel.alpha = 0
+        let scaleAction = SKAction.scale(to: 1.0, duration: 0.3)
+        let fadeAction = SKAction.fadeIn(withDuration: 0.3)
+        panel.run(SKAction.group([scaleAction, fadeAction]))
+    }
+    
+    // 显示自定义形状列表
+    func showCustomShapesList() {
+        let panel = SKSpriteNode(color: UIColor(white: 0.1, alpha: 0.95), size: CGSize(width: 300, height: 400))
+        panel.position = CGPoint(x: size.width/2, y: size.height/2)
+        panel.zPosition = 2000
+        panel.name = "customShapesPanel"
+        
+        // 添加标题
+        let title = SKLabelNode(text: "已保存的形状")
+        title.fontSize = 24
+        title.fontName = "PingFangSC-Medium"
+        title.position = CGPoint(x: 0, y: panel.size.height/2 - 40)
+        panel.addChild(title)
+        
+        // 显示保存的形状列表
+        let startY = panel.size.height/2 - 100
+        for (index, shapeInfo) in gameSettings.customShapes.enumerated() {
+            let itemBg = SKSpriteNode(color: UIColor(white: 0.2, alpha: 1.0), size: CGSize(width: 260, height: 50))
+            itemBg.position = CGPoint(x: 0, y: startY - CGFloat(index * 60))
+            itemBg.name = "customShape_\(index)"
+            panel.addChild(itemBg)
+            
+            let nameLabel = SKLabelNode(text: shapeInfo.name)
+            nameLabel.fontSize = 16
+            nameLabel.fontName = "PingFangSC-Regular"
+            nameLabel.position = CGPoint(x: 0, y: -8)
+            itemBg.addChild(nameLabel)
+        }
+        
+        // 添加新建按钮
+        let newButton = SKSpriteNode(color: UIColor(red: 0.3, green: 0.8, blue: 0.3, alpha: 1.0), size: CGSize(width: 260, height: 50))
+        newButton.position = CGPoint(x: 0, y: -panel.size.height/2 + 40)
+        newButton.name = "newCustomShape"
+        panel.addChild(newButton)
+        
+        let newLabel = SKLabelNode(text: "新建形状")
+        newLabel.fontSize = 18
+        newLabel.fontName = "PingFangSC-Regular"
+        newLabel.position = CGPoint(x: 0, y: -8)
+        newButton.addChild(newLabel)
+        
+        addChild(panel)
+    }
+    
+    // 清理绘图面板
+    func cleanupDrawingPanel() {
+        // 移除所有绘图相关的节点
+        drawingPanel?.removeFromParent()
+        drawingNode?.removeFromParent()
+        
+        // 重置所有绘图相关的变量
+        drawingPanel = nil
+        drawingPath = nil
+        drawingNode = nil
+        isDrawingMode = false
+        
+        // 重新显示设置面板
+        showSettings()
     }
 }
