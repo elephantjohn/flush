@@ -547,7 +547,7 @@ class GameScene: SKScene {
         // 添加"轰"按钮
         let breakButton = SKLabelNode(text: "轰")
         breakButton.name = "breakButton"
-        breakButton.fontSize = 24
+        breakButton.fontSize = 70  // 增大字体
         breakButton.fontColor = .red
         breakButton.position = CGPoint(x: size.width / 2, y: 50)
         breakButton.zPosition = 100 // 确保高于 CropNode
@@ -556,38 +556,11 @@ class GameScene: SKScene {
         // 添加"返回"按钮
         let backButton = SKLabelNode(text: "返回")
         backButton.name = "backButton"
-        backButton.fontSize = 20
-        backButton.fontColor = .blue
+        backButton.fontSize = 28  // 适当增大字体
+        backButton.fontColor = .white
         backButton.position = CGPoint(x: 50, y: size.height - 50)
         backButton.zPosition = 100 // 确保高于 CropNode
         addChild(backButton)
-        
-        // 创建"轰"按钮背景
-        let breakButtonBackground = SKSpriteNode(color: UIColor.red.withAlphaComponent(0.5), size: CGSize(width: 100, height: 50))
-        breakButtonBackground.position = breakButton.position
-        breakButtonBackground.zPosition = 99 // 背景低于文字
-        breakButtonBackground.name = "breakButtonBackground"
-        addChild(breakButtonBackground)
-        
-        // 添加"轰"文字
-        let breakButtonLabel = SKLabelNode(text: "轰")
-        breakButtonLabel.fontSize = 48
-        breakButtonLabel.fontColor = .white
-        breakButtonLabel.position = CGPoint.zero
-        breakButtonBackground.addChild(breakButtonLabel)
-        
-        // 同样方式创建"返回"按钮
-        let backButtonBackground = SKSpriteNode(color: UIColor.blue.withAlphaComponent(0.5), size: CGSize(width: 80, height: 40))
-        backButtonBackground.position = backButton.position
-        backButtonBackground.zPosition = 99
-        backButtonBackground.name = "backButtonBackground"
-        addChild(backButtonBackground)
-        
-        let backButtonLabel = SKLabelNode(text: "返回")
-        backButtonLabel.fontSize = 40
-        backButtonLabel.fontColor = .white
-        backButtonLabel.position = CGPoint.zero
-        backButtonBackground.addChild(backButtonLabel)
         
         // 添加设置按钮
         let settingsButton = SKLabelNode(text: "⚙️")
