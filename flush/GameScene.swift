@@ -34,8 +34,8 @@ class GameScene: SKScene {
     var cropNode: SKCropNode!
     var maskNode: SKSpriteNode!
     var currentHoleCount = 0
-    let holesPerBreak = 3
-    let holeRadiusRange: ClosedRange<CGFloat> = 10...30
+    let holesPerBreak = 1
+    let holeRadiusRange: ClosedRange<CGFloat> = 30...50
     
     override func didMove(to view: SKView) {
         // 清除所有现有子节点
@@ -86,21 +86,49 @@ class GameScene: SKScene {
         for _ in 0..<holesPerBreak {
             // 创建一个不规则的破碎形状
             let radius = CGFloat.random(in: holeRadiusRange)
-            let numberOfPoints = Int.random(in: 5...8)
+            let numberOfPoints = Int.random(in: 12...18)  // 增加顶点数量
             var points: [CGPoint] = []
             
-            // 随机位置
-            let centerX = CGFloat.random(in: -80...80)
-            let centerY = CGFloat.random(in: -80...80)
+            // 随机位置（稍微扩大范围）
+            let centerX = CGFloat.random(in: -90...90)
+            let centerY = CGFloat.random(in: -90...90)
             
-            // 生成随机多边形的顶点
+            // 生成闪电状的随机多边形顶点
             for i in 0..<numberOfPoints {
                 let angle = (CGFloat(i) * 2.0 * .pi) / CGFloat(numberOfPoints)
-                let randomRadius = radius * CGFloat.random(in: 0.8...1.2)
-                let x = centerX + randomRadius * cos(angle)
-                let y = centerY + randomRadius * sin(angle)
+                // 使用不同的随机范围创造更不规则的形状
+                let randomRadius = radius * CGFloat.random(in: 0.3...1.7)
+                // 添加锯齿状效果
+                let zigzag = CGFloat.random(in: -20...20)
+                let x = centerX + randomRadius * cos(angle) + zigzag
+                let y = centerY + randomRadius * sin(angle) + zigzag
                 points.append(CGPoint(x: x, y: y))
             }
+            
+            // 添加额外的锯齿点，使形状更像闪电
+            var extraPoints: [CGPoint] = []
+            for i in 0..<points.count {
+                let current = points[i]
+                let next = points[(i + 1) % points.count]
+                
+                // 在两点之间添加1-2个额外的锯齿点
+                let numberOfExtra = Int.random(in: 1...2)
+                for _ in 0..<numberOfExtra {
+                    let progress = CGFloat.random(in: 0.2...0.8)
+                    let midX = current.x + (next.x - current.x) * progress
+                    let midY = current.y + (next.y - current.y) * progress
+                    
+                    // 添加随机偏移创造锯齿
+                    let offset = CGFloat.random(in: -15...15)
+                    let perpX = -(next.y - current.y) * offset / 100
+                    let perpY = (next.x - current.x) * offset / 100
+                    
+                    extraPoints.append(CGPoint(x: midX + perpX, y: midY + perpY))
+                }
+            }
+            
+            // 将额外的点插入到原始点数组中
+            points.append(contentsOf: extraPoints)
             
             // 创建路径
             let path = CGMutablePath()
@@ -115,7 +143,7 @@ class GameScene: SKScene {
             hole.fillColor = .black
             hole.strokeColor = .black
             hole.lineWidth = 0
-            hole.blendMode = .replace  // 使用替换混合模式
+            hole.blendMode = .replace
             
             // 将洞添加到遮罩节点
             maskNode.addChild(hole)
@@ -225,8 +253,8 @@ class GameScene: SKScene {
         maskNode.zPosition = 1
         mainNode.addChild(maskNode)
         
-        // 添加"打破"按钮
-        let breakButton = SKLabelNode(text: "打破")
+        // 添加"轰"按钮
+        let breakButton = SKLabelNode(text: "轰")
         breakButton.name = "breakButton"
         breakButton.fontSize = 24
         breakButton.fontColor = .red
@@ -243,15 +271,15 @@ class GameScene: SKScene {
         backButton.zPosition = 100 // 确保高于 CropNode
         addChild(backButton)
         
-        // 创建"打破"按钮背景
+        // 创建"轰"按钮背景
         let breakButtonBackground = SKSpriteNode(color: UIColor.red.withAlphaComponent(0.5), size: CGSize(width: 100, height: 50))
         breakButtonBackground.position = breakButton.position
         breakButtonBackground.zPosition = 99 // 背景低于文字
         breakButtonBackground.name = "breakButtonBackground"
         addChild(breakButtonBackground)
         
-        // 添加"打破"文字
-        let breakButtonLabel = SKLabelNode(text: "打破")
+        // 添加"轰"文字
+        let breakButtonLabel = SKLabelNode(text: "轰")
         breakButtonLabel.fontSize = 24
         breakButtonLabel.fontColor = .white
         breakButtonLabel.position = CGPoint.zero
