@@ -80,27 +80,58 @@ class GameScene: SKScene {
     }
     
     func breakObject() {
-        guard let cropNode = cropNode, let maskNode = maskNode else { return }
+        guard let maskNode = maskNode else { return }
         
-        // 增加洞的数量
-        currentHoleCount += holesPerBreak
-        
-        // 生成新的遮罩图像，使用 objectNode 的大小
-        let maskImage = generateRandomMask(size: objectNode.size, holeCount: currentHoleCount, holeRadiusRange: holeRadiusRange)
-        maskNode.texture = SKTexture(image: maskImage)
-        
-        // 重新设置 maskNode 的大小
-        maskNode.size = objectNode.size
+        // 创建新的破洞
+        for _ in 0..<holesPerBreak {
+            // 创建一个不规则的破碎形状
+            let radius = CGFloat.random(in: holeRadiusRange)
+            let numberOfPoints = Int.random(in: 5...8)
+            var points: [CGPoint] = []
+            
+            // 随机位置
+            let centerX = CGFloat.random(in: -80...80)
+            let centerY = CGFloat.random(in: -80...80)
+            
+            // 生成随机多边形的顶点
+            for i in 0..<numberOfPoints {
+                let angle = (CGFloat(i) * 2.0 * .pi) / CGFloat(numberOfPoints)
+                let randomRadius = radius * CGFloat.random(in: 0.8...1.2)
+                let x = centerX + randomRadius * cos(angle)
+                let y = centerY + randomRadius * sin(angle)
+                points.append(CGPoint(x: x, y: y))
+            }
+            
+            // 创建路径
+            let path = CGMutablePath()
+            path.move(to: points[0])
+            for i in 1..<points.count {
+                path.addLine(to: points[i])
+            }
+            path.closeSubpath()
+            
+            // 创建遮罩洞
+            let hole = SKShapeNode(path: path)
+            hole.fillColor = .black
+            hole.strokeColor = .black
+            hole.lineWidth = 0
+            hole.blendMode = .replace  // 使用替换混合模式
+            
+            // 将洞添加到遮罩节点
+            maskNode.addChild(hole)
+        }
         
         // 震动反馈
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         
-        // 可选：添加粒子效果
+        // 添加粒子效果
         if let explosion = SKEmitterNode(fileNamed: "Explosion.sks") {
-            explosion.position = objectNode.position
-            explosion.zPosition = 15 // 确保粒子效果在物体之上
-            addChild(explosion)
+            explosion.position = .zero
+            explosion.zPosition = 15
+            explosion.particlePosition = .zero
+            explosion.particlePositionRange = CGVector(dx: 50, dy: 50)
+            maskNode.parent?.addChild(explosion)
             
             let removeAction = SKAction.sequence([
                 SKAction.wait(forDuration: 1.0),
@@ -176,29 +207,25 @@ class GameScene: SKScene {
         }
         objectButtons.removeAll()
         
-        // 创建 CropNode
-        cropNode = SKCropNode()
-        cropNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
-        cropNode.zPosition = 5
+        // 创建主节点
+        let mainNode = SKNode()
+        mainNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        mainNode.zPosition = 5
+        addChild(mainNode)
         
-        // 创建 maskNode
-        let initialMaskImage = generateRandomMask(size: CGSize(width: 200, height: 200), holeCount: 0, holeRadiusRange: holeRadiusRange) // 初始无洞，调整大小为物体大小
-        maskNode = SKSpriteNode(texture: SKTexture(image: initialMaskImage))
-        maskNode.size = CGSize(width: 200, height: 200) // 确保与 objectNode 大小一致
-        maskNode.position = CGPoint(x: 0, y: 0)
+        // 添加物体节点
+        objectNode = SKSpriteNode(imageNamed: objectName)
+        objectNode.size = CGSize(width: 200, height: 200)
+        objectNode.position = .zero
+        mainNode.addChild(objectNode)
         
-        cropNode.maskNode = maskNode
+        // 创建遮罩节点
+        maskNode = SKSpriteNode(color: .clear, size: CGSize(width: 200, height: 200))
+        maskNode.position = .zero
+        maskNode.zPosition = 1
+        mainNode.addChild(maskNode)
         
-        // 添加 CropNode 到场景
-        addChild(cropNode)
-        
-        // 添加物体节点到 CropNode
-        objectNode = SKSpriteNode(imageNamed: objectName) // 使用用户选择的物体图片
-        objectNode.size = CGSize(width: 200, height: 200) // 确保物体大小与遮罩一致
-        objectNode.position = CGPoint(x: 0, y: 0) // 相对于 CropNode
-        cropNode.addChild(objectNode)
-        
-        // 添加“打破”按钮
+        // 添加"打破"按钮
         let breakButton = SKLabelNode(text: "打破")
         breakButton.name = "breakButton"
         breakButton.fontSize = 24
@@ -207,7 +234,7 @@ class GameScene: SKScene {
         breakButton.zPosition = 100 // 确保高于 CropNode
         addChild(breakButton)
         
-        // 添加“返回”按钮
+        // 添加"返回"按钮
         let backButton = SKLabelNode(text: "返回")
         backButton.name = "backButton"
         backButton.fontSize = 20
@@ -216,21 +243,21 @@ class GameScene: SKScene {
         backButton.zPosition = 100 // 确保高于 CropNode
         addChild(backButton)
         
-        // 创建“打破”按钮背景
+        // 创建"打破"按钮背景
         let breakButtonBackground = SKSpriteNode(color: UIColor.red.withAlphaComponent(0.5), size: CGSize(width: 100, height: 50))
         breakButtonBackground.position = breakButton.position
         breakButtonBackground.zPosition = 99 // 背景低于文字
         breakButtonBackground.name = "breakButtonBackground"
         addChild(breakButtonBackground)
         
-        // 添加“打破”文字
+        // 添加"打破"文字
         let breakButtonLabel = SKLabelNode(text: "打破")
         breakButtonLabel.fontSize = 24
         breakButtonLabel.fontColor = .white
         breakButtonLabel.position = CGPoint.zero
         breakButtonBackground.addChild(breakButtonLabel)
         
-        // 同样方式创建“返回”按钮
+        // 同样方式创建"返回"按钮
         let backButtonBackground = SKSpriteNode(color: UIColor.blue.withAlphaComponent(0.5), size: CGSize(width: 80, height: 40))
         backButtonBackground.position = backButton.position
         backButtonBackground.zPosition = 99
@@ -246,26 +273,26 @@ class GameScene: SKScene {
     
     // 移除打破界面元素
     func removeBreakInterface() {
-        if let objectNode = objectNode {
-            objectNode.removeFromParent()
-        }
-        
-        // 移除 CropNode
-        if let cropNode = cropNode {
-            cropNode.removeFromParent()
-        }
-        
+        objectNode?.parent?.removeFromParent()
+        objectNode = nil
         maskNode = nil
-        cropNode = nil
         
-        // 移除“打破”按钮
+        // 移除"打破"按钮
         if let breakButton = childNode(withName: "breakButton") {
             breakButton.removeFromParent()
         }
         
-        // 移除“返回”按钮
+        // 移除"返回"按钮
         if let backButton = childNode(withName: "backButton") {
             backButton.removeFromParent()
+        }
+        
+        // 移除按钮背景
+        if let breakBg = childNode(withName: "breakButtonBackground") {
+            breakBg.removeFromParent()
+        }
+        if let backBg = childNode(withName: "backButtonBackground") {
+            backBg.removeFromParent()
         }
     }
     
@@ -273,7 +300,7 @@ class GameScene: SKScene {
     func generateRandomMask(size: CGSize, holeCount: Int, holeRadiusRange: ClosedRange<CGFloat>) -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: size)
         let img = renderer.image { ctx in
-            // 填充白色（表示可见部分）
+            // 填充白色（表示显示部分）
             UIColor.white.setFill()
             ctx.fill(CGRect(origin: .zero, size: size))
             
@@ -282,9 +309,30 @@ class GameScene: SKScene {
                 let radius = CGFloat.random(in: holeRadiusRange)
                 let x = CGFloat.random(in: radius...(size.width - radius))
                 let y = CGFloat.random(in: radius...(size.height - radius))
-                let holeRect = CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)
+                
+                // 创建不规则的破碎形状
+                let path = UIBezierPath()
+                let numberOfPoints = Int.random(in: 5...8)
+                var points: [CGPoint] = []
+                
+                // 生成随机多边形的顶点
+                for i in 0..<numberOfPoints {
+                    let angle = (CGFloat(i) * 2.0 * .pi) / CGFloat(numberOfPoints)
+                    let randomRadius = radius * CGFloat.random(in: 0.8...1.2)
+                    let pointX = x + randomRadius * cos(angle)
+                    let pointY = y + randomRadius * sin(angle)
+                    points.append(CGPoint(x: pointX, y: pointY))
+                }
+                
+                // 绘制不规则多边形
+                path.move(to: points[0])
+                for i in 1..<points.count {
+                    path.addLine(to: points[i])
+                }
+                path.close()
+                
                 UIColor.black.setFill()
-                ctx.cgContext.fillEllipse(in: holeRect)
+                path.fill()
             }
         }
         return img
