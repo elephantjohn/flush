@@ -158,38 +158,38 @@ class GameScene: SKScene {
         for node in nodesAtPoint {
             if node.name == "breakButton" {
                 breakObject()
-                // 添加缩放动画
-                let scaleUp = SKAction.scale(to: 1.2, duration: 0.1)
-                let scaleDown = SKAction.scale(to: 1.0, duration: 0.1)
-                node.run(SKAction.sequence([scaleUp, scaleDown]))
+                animateButtonPress(node)
             }
             else if node.name?.hasPrefix("objectButton_") == true {
                 let selectedObject = node.name!.replacingOccurrences(of: "objectButton_", with: "")
                 selectObject(named: selectedObject)
-                
-                // 添加缩放动画
-                let scaleUp = SKAction.scale(to: 1.2, duration: 0.1)
-                let scaleDown = SKAction.scale(to: 1.0, duration: 0.1)
-                node.run(SKAction.sequence([scaleUp, scaleDown]))
+                animateButtonPress(node)
             }
             else if node.name == "backButton" {
                 removeBreakInterface()
                 showObjectSelection()
-                
-                // 添加缩放动画
-                let scaleUp = SKAction.scale(to: 1.2, duration: 0.1)
-                let scaleDown = SKAction.scale(to: 1.0, duration: 0.1)
-                node.run(SKAction.sequence([scaleUp, scaleDown]))
+                animateButtonPress(node)
             }
-            // 处理设置相关的点击
             else if node.name == "settingsButton" {
                 showSettings()
+                animateButtonPress(node)
             }
-            else if node.name == "closeSettings" {
-                node.parent?.removeFromParent()
-            }
-            else if node.name?.hasPrefix("shape_") == true {
+            else if node.name?.hasPrefix("shape_") == true || node.name?.hasPrefix("shapeButton_") == true {
                 let shapeName = node.name!.replacingOccurrences(of: "shape_", with: "")
+                    .replacingOccurrences(of: "shapeButton_", with: "")
+                
+                if let panel = node.parent?.parent {
+                    for child in panel.children {
+                        if child.name?.hasPrefix("shapeButton_") == true {
+                            (child as? SKSpriteNode)?.color = UIColor(white: 0.3, alpha: 1.0)
+                        }
+                    }
+                }
+                
+                if let buttonNode = node.name?.hasPrefix("shape_") == true ? node.parent : node {
+                    (buttonNode as? SKSpriteNode)?.color = UIColor(red: 0.3, green: 0.6, blue: 1.0, alpha: 1.0)
+                }
+                
                 switch shapeName {
                 case "闪电":
                     gameSettings.holeShape = .lightning
@@ -199,15 +199,50 @@ class GameScene: SKScene {
                     gameSettings.holeShape = .triangle
                 case "自定义":
                     isDrawingMode = true
-                    node.parent?.removeFromParent()  // 关闭设置面板
+                    node.parent?.parent?.removeFromParent()
                 default:
                     break
                 }
                 
-                // 添加选中效果
-                let scaleUp = SKAction.scale(to: 1.2, duration: 0.1)
-                let scaleDown = SKAction.scale(to: 1.0, duration: 0.1)
-                node.run(SKAction.sequence([scaleUp, scaleDown]))
+                animateButtonPress(node)
+            }
+            else if node.name == "confirmSettings" {
+                node.parent?.removeFromParent()
+                animateButtonPress(node)
+            }
+            else if node.name == "minus_count" {
+                if gameSettings.holesPerBreak > 1 {
+                    gameSettings.holesPerBreak -= 1
+                    if let countLabel = node.parent?.childNode(withName: "countLabel") as? SKLabelNode {
+                        countLabel.text = "\(gameSettings.holesPerBreak)"
+                    }
+                }
+                animateButtonPress(node)
+            }
+            else if node.name == "plus_count" {
+                if gameSettings.holesPerBreak < 5 {
+                    gameSettings.holesPerBreak += 1
+                    if let countLabel = node.parent?.childNode(withName: "countLabel") as? SKLabelNode {
+                        countLabel.text = "\(gameSettings.holesPerBreak)"
+                    }
+                }
+                animateButtonPress(node)
+            }
+            else if node.name == "minus_size" {
+                let newSize = max(10, Int(gameSettings.holeRadiusRange.lowerBound) - 5)
+                gameSettings.holeRadiusRange = CGFloat(newSize)...CGFloat(newSize + 20)
+                if let sizeLabel = node.parent?.childNode(withName: "sizeLabel") as? SKLabelNode {
+                    sizeLabel.text = "\(newSize)"
+                }
+                animateButtonPress(node)
+            }
+            else if node.name == "plus_size" {
+                let newSize = min(100, Int(gameSettings.holeRadiusRange.lowerBound) + 5)
+                gameSettings.holeRadiusRange = CGFloat(newSize)...CGFloat(newSize + 20)
+                if let sizeLabel = node.parent?.childNode(withName: "sizeLabel") as? SKLabelNode {
+                    sizeLabel.text = "\(newSize)"
+                }
+                animateButtonPress(node)
             }
         }
     }
@@ -504,52 +539,175 @@ class GameScene: SKScene {
     // 添加设置界面
     func showSettings() {
         // 创建设置面板背景
-        let settingsPanel = SKSpriteNode(color: UIColor.black.withAlphaComponent(0.9), size: CGSize(width: 300, height: 400))
+        let settingsPanel = SKSpriteNode(color: UIColor(white: 0.15, alpha: 0.95), size: CGSize(width: 350, height: 500))
         settingsPanel.position = CGPoint(x: size.width / 2, y: size.height / 2)
         settingsPanel.zPosition = 1000
         settingsPanel.name = "settingsPanel"
+        
+        // 添加圆角和边框效果
+        let borderTexture = SKTexture(imageNamed: "panel_background") // 如果没有这个图片，会自动降级使用纯色背景
+        settingsPanel.texture = borderTexture
         addChild(settingsPanel)
         
         // 添加标题
-        let title = SKLabelNode(text: "设置")
-        title.fontSize = 24
+        let titleBackground = SKSpriteNode(color: UIColor(red: 0.2, green: 0.2, blue: 0.3, alpha: 1.0), size: CGSize(width: 350, height: 60))
+        titleBackground.position = CGPoint(x: 0, y: 220)
+        settingsPanel.addChild(titleBackground)
+        
+        let title = SKLabelNode(text: "效果设置")
+        title.fontSize = 28
+        title.fontName = "PingFangSC-Semibold"
         title.fontColor = .white
-        title.position = CGPoint(x: 0, y: 160)
-        settingsPanel.addChild(title)
+        title.position = CGPoint(x: 0, y: -10)
+        titleBackground.addChild(title)
         
         // 添加形状选择按钮
         let shapes = ["闪电", "圆形", "三角形", "自定义"]
+        let buttonWidth: CGFloat = 140
+        let buttonHeight: CGFloat = 50
+        let buttonSpacing: CGFloat = 20
+        let startY: CGFloat = 130
+        
         for (index, shapeName) in shapes.enumerated() {
+            let row = index / 2
+            let col = index % 2
+            let x = CGFloat(col) * (buttonWidth + buttonSpacing) - (buttonWidth + buttonSpacing) / 2
+            let y = startY - CGFloat(row) * (buttonHeight + buttonSpacing)
+            
+            let buttonBackground = SKSpriteNode(color: UIColor(white: 0.3, alpha: 1.0), size: CGSize(width: buttonWidth, height: buttonHeight))
+            buttonBackground.position = CGPoint(x: x, y: y)
+            buttonBackground.name = "shapeButton_\(shapeName)"
+            
+            // 如果是当前选中的形状，使用高亮颜色
+            switch gameSettings.holeShape {
+            case .lightning where shapeName == "闪电",
+                 .circle where shapeName == "圆形",
+                 .triangle where shapeName == "三角形",
+                 .custom where shapeName == "自定义":
+                buttonBackground.color = UIColor(red: 0.3, green: 0.6, blue: 1.0, alpha: 1.0)
+            default:
+                break
+            }
+            
+            settingsPanel.addChild(buttonBackground)
+            
             let button = SKLabelNode(text: shapeName)
-            button.fontSize = 20
+            button.fontSize = 24
+            button.fontName = "PingFangSC-Regular"
             button.fontColor = .white
-            button.position = CGPoint(x: 0, y: 100 - CGFloat(index * 40))
+            button.position = CGPoint(x: 0, y: -8)
             button.name = "shape_\(shapeName)"
-            settingsPanel.addChild(button)
+            buttonBackground.addChild(button)
         }
         
         // 添加数量调节器
-        let countLabel = SKLabelNode(text: "数量: \(gameSettings.holesPerBreak)")
-        countLabel.fontSize = 20
+        let countTitle = SKLabelNode(text: "破坏数量")
+        countTitle.fontSize = 20
+        countTitle.fontName = "PingFangSC-Regular"
+        countTitle.fontColor = .white
+        countTitle.position = CGPoint(x: -120, y: 0)
+        settingsPanel.addChild(countTitle)
+        
+        // 添加减号按钮
+        let minusButton = SKShapeNode(circleOfRadius: 20)
+        minusButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
+        minusButton.strokeColor = .clear
+        minusButton.position = CGPoint(x: -50, y: 0)
+        minusButton.name = "minus_count"
+        settingsPanel.addChild(minusButton)
+        
+        let minusLabel = SKLabelNode(text: "-")
+        minusLabel.fontSize = 30
+        minusLabel.fontColor = .white
+        minusLabel.position = CGPoint(x: 0, y: -10)
+        minusButton.addChild(minusLabel)
+        
+        // 添加数量显示
+        let countLabel = SKLabelNode(text: "\(gameSettings.holesPerBreak)")
+        countLabel.fontSize = 24
+        countLabel.fontName = "PingFangSC-Medium"
         countLabel.fontColor = .white
-        countLabel.position = CGPoint(x: 0, y: -60)
+        countLabel.position = CGPoint(x: 0, y: 0)
         countLabel.name = "countLabel"
         settingsPanel.addChild(countLabel)
         
+        // 添加加号按钮
+        let plusButton = SKShapeNode(circleOfRadius: 20)
+        plusButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
+        plusButton.strokeColor = .clear
+        plusButton.position = CGPoint(x: 50, y: 0)
+        plusButton.name = "plus_count"
+        settingsPanel.addChild(plusButton)
+        
+        let plusLabel = SKLabelNode(text: "+")
+        plusLabel.fontSize = 30
+        plusLabel.fontColor = .white
+        plusLabel.position = CGPoint(x: 0, y: -10)
+        plusButton.addChild(plusLabel)
+        
         // 添加大小调节器
-        let sizeLabel = SKLabelNode(text: "大小: \(Int(gameSettings.holeRadiusRange.lowerBound))-\(Int(gameSettings.holeRadiusRange.upperBound))")
-        sizeLabel.fontSize = 20
+        let sizeTitle = SKLabelNode(text: "破坏大小")
+        sizeTitle.fontSize = 20
+        sizeTitle.fontName = "PingFangSC-Regular"
+        sizeTitle.fontColor = .white
+        sizeTitle.position = CGPoint(x: -120, y: -80)
+        settingsPanel.addChild(sizeTitle)
+        
+        // 添加大小减号按钮
+        let minusSizeButton = SKShapeNode(circleOfRadius: 20)
+        minusSizeButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
+        minusSizeButton.strokeColor = .clear
+        minusSizeButton.position = CGPoint(x: -50, y: -80)
+        minusSizeButton.name = "minus_size"
+        settingsPanel.addChild(minusSizeButton)
+        
+        let minusSizeLabel = SKLabelNode(text: "-")
+        minusSizeLabel.fontSize = 30
+        minusSizeLabel.fontColor = .white
+        minusSizeLabel.position = CGPoint(x: 0, y: -10)
+        minusSizeButton.addChild(minusSizeLabel)
+        
+        // 添加大小显示
+        let sizeLabel = SKLabelNode(text: "\(Int(gameSettings.holeRadiusRange.lowerBound))")
+        sizeLabel.fontSize = 24
+        sizeLabel.fontName = "PingFangSC-Medium"
         sizeLabel.fontColor = .white
-        sizeLabel.position = CGPoint(x: 0, y: -100)
+        sizeLabel.position = CGPoint(x: 0, y: -80)
         sizeLabel.name = "sizeLabel"
         settingsPanel.addChild(sizeLabel)
         
-        // 添加关闭按钮
-        let closeButton = SKLabelNode(text: "关闭")
-        closeButton.fontSize = 20
-        closeButton.fontColor = .white
-        closeButton.position = CGPoint(x: 0, y: -150)
-        closeButton.name = "closeSettings"
-        settingsPanel.addChild(closeButton)
+        // 添加大小加号按钮
+        let plusSizeButton = SKShapeNode(circleOfRadius: 20)
+        plusSizeButton.fillColor = UIColor(white: 0.3, alpha: 1.0)
+        plusSizeButton.strokeColor = .clear
+        plusSizeButton.position = CGPoint(x: 50, y: -80)
+        plusSizeButton.name = "plus_size"
+        settingsPanel.addChild(plusSizeButton)
+        
+        let plusSizeLabel = SKLabelNode(text: "+")
+        plusSizeLabel.fontSize = 30
+        plusSizeLabel.fontColor = .white
+        plusSizeLabel.position = CGPoint(x: 0, y: -10)
+        plusSizeButton.addChild(plusSizeLabel)
+        
+        // 添加确认按钮
+        let confirmButton = SKSpriteNode(color: UIColor(red: 0.3, green: 0.8, blue: 0.3, alpha: 1.0), size: CGSize(width: 200, height: 50))
+        confirmButton.position = CGPoint(x: 0, y: -180)
+        confirmButton.name = "confirmSettings"
+        settingsPanel.addChild(confirmButton)
+        
+        let confirmLabel = SKLabelNode(text: "确认")
+        confirmLabel.fontSize = 24
+        confirmLabel.fontName = "PingFangSC-Medium"
+        confirmLabel.fontColor = .white
+        confirmLabel.position = CGPoint(x: 0, y: -8)
+        confirmButton.addChild(confirmLabel)
+    }
+    
+    // 添加按钮按压动画
+    func animateButtonPress(_ node: SKNode) {
+        let scaleDown = SKAction.scale(to: 0.9, duration: 0.05)
+        let scaleUp = SKAction.scale(to: 1.0, duration: 0.05)
+        node.run(SKAction.sequence([scaleDown, scaleUp]))
     }
 }
